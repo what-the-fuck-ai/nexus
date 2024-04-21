@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    environment: Linux
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: 'gngpp/nexus'
+          ref: 'fuck'
+          token: ${{ secrets.CR_PAT }}
+
+      - name: Install depends
+        run: |
+          sudo apt update && sudo apt install upx rename -y
+      - name: Get tag
+        if: startsWith(github.ref, 'refs/tags/')
+        id: tag
+        uses: dawidd6/action-get-tag@v1
+        with:
+          strip_v: true
+
+      - name: Tag Check
+        run: |
+          echo "tag=${{ steps.tag.outputs.tag }}" >> $GITHUB_ENV
+          echo "tag=${{ steps.tag.outputs.tag }}" >> $GITHUB_OUTPUT
+          if [ -z "${{ steps.tag.outputs.tag }}" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> $GITHUB_ENV
+          fi
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: gngpp
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Build package
+        shell: bash
+        env:
+          GIT_TOKEN: ${{ secrets.CR_PAT }}
+        run: |
+          rmi=true os=linux bash +x build.sh
+      - name: Upload binaries to GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          token: ${{ secrets.CR_PAT }}
+          files: |
+            bin/*
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+          generate_release_notes: true
